@@ -12,7 +12,11 @@ covers the Spring-specific implementation.
 
 ## 2. Entities
 
-- `Member` — id, email (unique), passwordHash, role
+- `Member` — id, memberHandler (unique, public-facing), memberName (real name, for
+  shipping), telephone, email (unique), passwordHash, address (optional, filled in at
+  first order), grade (enum: BRONZE/SILVER/GOLD/PLATINUM/VIP, recalculated from lifetime
+  purchase total), role (enum: USER/ADMIN — ADMIN acts as seller, USER as buyer-only;
+  simplified from a Seller/Buyer composition model), created, isDeleted
 - `Product` — id, name, price, stockQuantity
 - `Cart` — id, member (1:1)
 - `CartItem` — id, cart, product, quantity
