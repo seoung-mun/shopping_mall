@@ -61,7 +61,7 @@ public class Member implements Serializable {
     @Column
     private String address;
 
-    @Column
+    @Column(unique = true)
     @NotBlank
     @Setter
     @Email(message = "{email.invalid}")
