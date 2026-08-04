@@ -102,6 +102,52 @@ design decisions themselves live in `spec/`.
   lookup on every authenticated request, at the cost of a role change not taking effect
   until the old token expires. Chose memberId+role for this project ("B안").
 
+## JWT parsing & the auth filter
+
+- `Jwts.parser()` returns a *builder* (`JwtParserBuilder`), not `Claims` — easy first
+  mistake. Full chain: `Jwts.parser().verifyWith(key).build().parseSignedClaims(token)
+  .getPayload()`. `verifyWith(key)` is the mirror of `signWith(key)` used when generating
+  the token — same `SecretKey`, verification checks the signature matches.
+  `parseSignedClaims` is where signature/expiry are actually checked and where it throws.
+- API design choice: `parseClaims(token)` as one method that throws on failure, instead of
+  a `validateToken(token): boolean` + separate `getMemberId`/`getRole` getters. The
+  boolean+getters split is a common tutorial pattern but parses the same token twice (once
+  to validate, again per getter) and splits "is this valid" from "here are the values"
+  into two calls that can drift out of sync. One parse, one `Claims` result, exceptions
+  propagate to whoever calls it (the filter) to decide what to do.
+- Deliberately **not** catching the parse exception inside `JwtProvider` — catching it
+  there would hide *which* exception subtype occurred (`ExpiredJwtException` vs
+  `SignatureException` vs `MalformedJwtException`) from the caller, who may want to react
+  differently later.
+- `OncePerRequestFilter`: guarantees a filter runs exactly once per request, unlike a raw
+  `Filter`, which can re-run on internal forwards/includes. Right base class for
+  auth logic, which must not double-run.
+- The filter never rejects a request itself (no 401 thrown for a missing/invalid token) —
+  it only *populates* `SecurityContextHolder` when a token is valid, and otherwise lets
+  the request continue unauthenticated. Deciding which endpoints *require* authentication
+  is `SecurityConfig`'s job, not the filter's — keeps the two concerns separate so the
+  filter doesn't need to know the app's URL/permission rules.
+- `SimpleGrantedAuthority` role strings must be prefixed exactly `"ROLE_"` (uppercase).
+  Spring Security's `hasRole("ADMIN")` silently checks for `"ROLE_ADMIN"` under the hood —
+  get the prefix's case or spelling wrong and `hasRole` just always returns false, no error
+  anywhere to point at it.
+- `UsernamePasswordAuthenticationToken` isn't only for username/password login — it's a
+  general-purpose `Authentication` implementation, commonly reused to represent "already
+  authenticated by some other means" (here, a validated JWT). The `credentials` argument
+  (2nd constructor param) is `null` here since there's nothing left to verify at that
+  point.
+- Principal design choice: a custom `MemberPrincipal(memberId, role)` record instead of a
+  bare `Long memberId`. Since Cart/Order/Product endpoints will repeatedly need `role` for
+  authorization checks, bundling it into the principal avoids re-parsing the token or
+  hitting the DB just to answer "is this an admin?" on every request. Also considered:
+  implementing Spring's full `UserDetails` — rejected, since that interface's usual
+  contract implies a DB-backed lookup, which conflicts with the project's already-chosen
+  "trust the JWT claims, accept staleness until expiry" trade-off.
+- Claim key names (`"role"`) are plain string literals duplicated between
+  `JwtProvider.generateToken` (writes it) and the filter (reads it) — nothing at compile
+  time enforces they match. Fine at two occurrences; worth promoting to a shared constant
+  if more claims get added later.
+
 ## Local dev environment debugging
 
 - `lsof -nP -iTCP:<port> -sTCP:LISTEN` — find what's listening on a port.
