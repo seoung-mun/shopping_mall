@@ -38,5 +38,6 @@ public class JwtProvider {
 
     public Claims parseClaims(String token) {
 
+        return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
     }
 }
